@@ -1,0 +1,37 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: platform-root
+  namespace: argocd
+  finalizers:
+    # Ensures child Applications are cleaned up if this root app is ever
+    # deleted, rather than leaving orphaned resources behind.
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: secure-vault-platform
+
+  source:
+    # Replace with your real GitOps repo URL (same one as
+    # platform-project.yaml sourceRepos - secure-vault-platform-gitops, NOT
+    # the infra/Terraform repo). This Application itself lives in
+    # argocd/bootstrap/ and is applied once manually (see
+    # scripts/bootstrap-argocd.ps1) - it is deliberately NOT inside the
+    # path it watches below, to avoid a self-referential sync target.
+    repoURL: "<GITOPS_REPO_URL>"
+    targetRevision: main
+    path: argocd/applications
+
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: argocd
+
+  syncPolicy:
+    automated:
+      prune: true # Removing an Application manifest from Git removes it here too.
+      selfHeal: true # Manual kubectl edits get reverted back to what Git says.
+    syncOptions:
+      - CreateNamespace=false # Namespaces are managed explicitly, not implicitly.
+
+  # NOTE: this Application currently has nothing else to sync besides
+  # itself - no child Applications exist yet. Phase 4 (Vault) will add the
+  # first real one here.

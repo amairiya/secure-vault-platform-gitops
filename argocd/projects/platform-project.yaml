@@ -1,0 +1,44 @@
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata:
+  name: secure-vault-platform
+  namespace: argocd
+spec:
+  description: >-
+    Secure Vault Production Platform - the only project used by this
+    cluster's ArgoCD instance. Deliberately scoped, not the "default"
+    unrestricted project (CONTEXT.md: "ArgoCD != Vault Root", least
+    privilege applies to the GitOps controller itself).
+
+  # Only this repository may be used as a source. Replace with your real
+  # GitOps repo URL (secure-vault-platform-gitops) once pushed - NOT the
+  # infra/Terraform repo, which ArgoCD never needs access to.
+  sourceRepos:
+    - "<GITOPS_REPO_URL>"
+
+  # ArgoCD may only deploy into these namespaces - never kube-system, never
+  # cluster-wide without an explicit destination entry.
+  destinations:
+    - namespace: argocd
+      server: https://kubernetes.default.svc
+    - namespace: vault
+      server: https://kubernetes.default.svc
+    - namespace: monitoring
+      server: https://kubernetes.default.svc
+
+  # Cluster-scoped resources ArgoCD is allowed to manage. Deliberately NOT
+  # a wildcard - see CONTEXT.md section 15: "Every Kubernetes permission
+  # must have a reason." NetworkPolicy/PodDisruptionBudget/etc. are
+  # namespaced resources, not cluster-scoped - they don't belong here; they
+  # deploy automatically within the whitelisted destination namespaces
+  # above.
+  clusterResourceWhitelist:
+    - group: ""
+      kind: Namespace
+    - group: "rbac.authorization.k8s.io"
+      kind: ClusterRole
+    - group: "rbac.authorization.k8s.io"
+      kind: ClusterRoleBinding
+
+  orphanedResources:
+    warn: true

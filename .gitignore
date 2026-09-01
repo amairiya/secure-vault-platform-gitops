@@ -1,0 +1,16 @@
+# This repo never holds Terraform state (that lives in the infra repo),
+# but the same rule applies: no secrets, ever.
+**/*.key
+**/*.pem
+!**/*.example.pem
+
+# Vault init output / unseal keys / root token - must never exist in Git
+**/vault-init.json
+**/*unseal*
+**/*root-token*
+
+# Local tooling
+.DS_Store
+*.swp
+.idea/
+.vscode/

@@ -1,0 +1,198 @@
+###############################################################################
+# helm/argocd/values-production.yaml
+#
+# Chart:  argo-cd (argoproj/argo-helm)
+# Pinned: 10.4.3  (deploys Argo CD app version ~3.5.x)
+#   -> Verify this is still current before install:
+#      helm repo update
+#      helm search repo argo/argo-cd --versions | head -5
+#   Do not silently install `latest` (CLAUDE.md Rule 6 - Version Pinning).
+#
+# Design decisions (see docs/phase-3-argocd.md for full rationale):
+#   - Not publicly exposed: server.service.type stays ClusterIP. Admin
+#     access is via `kubectl port-forward` until an internal ingress
+#     exists (CONTEXT.md section 12: "Vault must not be publicly exposed
+#     unless explicitly required" - same principle applies to ArgoCD, an
+#     equally privileged GitOps control-plane component).
+#   - No SSO/OIDC yet: dex.enabled = false. No identity provider has been
+#     provided. The built-in "admin" account is used for initial bootstrap
+#     ONLY - the bootstrap script rotates its password immediately and
+#     documents how to disable it once SSO is wired up.
+#   - RBAC default-deny: policy.default = role:readonly. A "platform-admin"
+#     role is pre-defined and mapped to a group, ready for the day SSO is
+#     configured - it grants nothing today because no one authenticates as
+#     that group yet.
+#   - Scheduled on the "general" node group only (nodeSelector), never on
+#     the tainted "vault" nodes.
+###############################################################################
+
+global:
+  # Applies hardened defaults to every ArgoCD component pod.
+  securityContext:
+    runAsNonRoot: true
+    seccompProfile:
+      type: RuntimeDefault
+
+  nodeSelector:
+    workload: general
+
+## ---------------------------------------------------------------------------
+## Server (API + UI)
+## ---------------------------------------------------------------------------
+server:
+  replicas: 2
+
+  # TLS is terminated by argocd-server itself (self-signed cert until a
+  # proper CA/cert-manager integration exists). Never set insecure: true.
+  extraArgs:
+    - --insecure=false
+
+  service:
+    type: ClusterIP # Deliberately not LoadBalancer/NodePort - see header note.
+
+  containerSecurityContext:
+    runAsNonRoot: true
+    allowPrivilegeEscalation: false
+    readOnlyRootFilesystem: true
+    capabilities:
+      drop: ["ALL"]
+
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+
+  # RBAC: deny-by-default. Nothing can act until explicitly granted.
+  rbacConfig:
+    policy.default: role:readonly
+    policy.csv: |
+      p, role:platform-admin, applications, *, */*, allow
+      p, role:platform-admin, clusters, get, *, allow
+      p, role:platform-admin, repositories, *, *, allow
+      p, role:platform-admin, projects, *, *, allow
+      g, argocd-admins, role:platform-admin
+    # "argocd-admins" is a placeholder SSO group - inert until Dex/OIDC is
+    # configured. Until then, only the local "admin" account can act, and
+    # its password is rotated immediately after bootstrap.
+
+  metrics:
+    enabled: true # Scraped by Prometheus in Phase 7 - harmless to enable now.
+
+## ---------------------------------------------------------------------------
+## Repo server
+## ---------------------------------------------------------------------------
+repoServer:
+  replicas: 2
+
+  containerSecurityContext:
+    runAsNonRoot: true
+    allowPrivilegeEscalation: false
+    readOnlyRootFilesystem: true
+    capabilities:
+      drop: ["ALL"]
+
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: 1000m
+      memory: 1Gi
+
+  metrics:
+    enabled: true
+
+## ---------------------------------------------------------------------------
+## Application controller
+## ---------------------------------------------------------------------------
+controller:
+  replicas: 1 # Sharding across replicas is a later optimization, not needed
+              # at this application count - see docs for how to scale later.
+
+  containerSecurityContext:
+    runAsNonRoot: true
+    allowPrivilegeEscalation: false
+    readOnlyRootFilesystem: true
+    capabilities:
+      drop: ["ALL"]
+
+  resources:
+    requests:
+      cpu: 250m
+      memory: 512Mi
+    limits:
+      cpu: 1000m
+      memory: 1Gi
+
+  metrics:
+    enabled: true
+
+## ---------------------------------------------------------------------------
+## Redis (app state cache)
+## ---------------------------------------------------------------------------
+redis:
+  # Single instance for now - Redis loss here is recoverable (ArgoCD
+  # re-syncs from Git + the Kubernetes API), so redis-ha is deferred to
+  # avoid unnecessary complexity (CLAUDE.md Rule 32). Revisit if ArgoCD
+  # becomes a single point of failure the platform can't tolerate losing
+  # briefly.
+  enabled: true
+
+  containerSecurityContext:
+    runAsNonRoot: true
+    allowPrivilegeEscalation: false
+    readOnlyRootFilesystem: true
+    capabilities:
+      drop: ["ALL"]
+
+  resources:
+    requests:
+      cpu: 50m
+      memory: 64Mi
+    limits:
+      cpu: 200m
+      memory: 256Mi
+
+redis-ha:
+  enabled: false # LAB/production-lite default - see redis: note above.
+
+## ---------------------------------------------------------------------------
+## ApplicationSet controller - not needed yet (no multi-cluster / templated
+## app generation use case at this stage). Left disabled to avoid running
+## a component with nothing to do; enable later if the project needs it.
+## ---------------------------------------------------------------------------
+applicationSet:
+  enabled: false
+
+## ---------------------------------------------------------------------------
+## Notifications controller - same reasoning, no notification channel
+## (Slack/email/etc.) configured yet. Enable in Phase 7 alongside alerting.
+## ---------------------------------------------------------------------------
+notifications:
+  enabled: false
+
+## ---------------------------------------------------------------------------
+## Dex (SSO/OIDC connector) - disabled until an identity provider is
+## available. See docs/phase-3-argocd.md for how to enable this later.
+## ---------------------------------------------------------------------------
+dex:
+  enabled: false
+
+## ---------------------------------------------------------------------------
+## Config management plugins - none needed; keep the attack surface minimal.
+## ---------------------------------------------------------------------------
+configs:
+  cm:
+    # Disables the built-in exec/terminal feature - ArgoCD should deploy
+    # manifests, not become an interactive shell into cluster workloads.
+    exec.enabled: "false"
+    # Do not allow anonymous read access.
+    users.anonymous.enabled: "false"
+
+  params:
+    # Explicit, not implied by a version default - keep TLS termination at
+    # argocd-server rather than assuming an upstream terminates it.
+    server.insecure: "false"

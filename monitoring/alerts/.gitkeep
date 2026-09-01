@@ -1,0 +1,3 @@
+# Placeholder - populated starting the phase that owns this directory.
+# vault/*        -> Phase 4 (Vault Helm/Raft/HA) and Phase 5 (K8s Auth, Policies, KV v2)
+# monitoring/*   -> Phase 7 (Prometheus, Grafana, Alerting)
