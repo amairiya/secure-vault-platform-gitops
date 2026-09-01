@@ -19,6 +19,7 @@
 global:
   tlsDisable: false # Never true in production - CONTEXT.md section 11.
 
+
 injector:
   # Vault Agent Injector is Phase 5 work (Kubernetes Auth / secret
   # injection). Installing it now with nothing configured to use it yet is
