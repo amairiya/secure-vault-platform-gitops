@@ -1,0 +1,22 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: vault
+  labels:
+    # NOTE: baseline, not restricted, unlike the argocd namespace (Phase 3).
+    # Vault uses mlock() to prevent its in-memory secrets from ever being
+    # swapped to disk, which requires the IPC_LOCK capability. Kubernetes'
+    # "restricted" Pod Security Standard forbids adding ANY capability back
+    # after dropping ALL - there is no way to keep mlock under "restricted".
+    # "baseline" allows IPC_LOCK specifically while still blocking
+    # privileged containers, host namespaces, and everything else
+    # "restricted" also blocks. Vault's own container securityContext
+    # (see helm/vault/values-production.yaml) still explicitly drops ALL
+    # capabilities except IPC_LOCK, runs non-root, and disallows privilege
+    # escalation - the namespace ceiling is baseline, but the actual pod
+    # spec is hardened close to restricted regardless.
+    pod-security.kubernetes.io/enforce: baseline
+    pod-security.kubernetes.io/enforce-version: latest
+    pod-security.kubernetes.io/audit: restricted
+    pod-security.kubernetes.io/warn: restricted
+    app.kubernetes.io/part-of: secure-vault-platform

@@ -1,0 +1,170 @@
+###############################################################################
+# helm/vault/values-production.yaml
+#
+# Chart:  hashicorp/vault  (helm.releases.hashicorp.com)
+# Pinned: 0.34.1  (deploys Vault app version 2.0.4)
+#   -> Verify still current before install:
+#      helm repo add hashicorp https://helm.releases.hashicorp.com
+#      helm repo update
+#      helm search repo hashicorp/vault --versions | head -5
+#
+# Before committing this file, replace:
+#   <VAULT_UNSEAL_KMS_KEY_ARN>  -> terraform output vault_unseal_kms_key_arn (infra repo)
+#   <AWS_REGION>                 -> terraform output aws_region (infra repo)
+# Neither value is secret (they're ARNs/region names, not credentials) -
+# safe to commit once filled in, unlike the TLS material (never committed,
+# see scripts/generate-vault-tls.ps1) or the init/unseal output.
+###############################################################################
+
+global:
+  tlsDisable: false # Never true in production - CONTEXT.md section 11.
+
+injector:
+  # Vault Agent Injector is Phase 5 work (Kubernetes Auth / secret
+  # injection). Installing it now with nothing configured to use it yet is
+  # unnecessary surface area - CLAUDE.md Rule 32.
+  enabled: false
+
+csi:
+  enabled: false # Same reasoning - not needed until a workload requires it.
+
+server:
+  image:
+    repository: "hashicorp/vault"
+    tag: "2.0.4" # Matches chart 0.34.1's tested app version - never "latest".
+
+  # ---------------------------------------------------------------------
+  # High Availability / Raft
+  # ---------------------------------------------------------------------
+  ha:
+    enabled: true
+    replicas: 3
+
+    raft:
+      enabled: true
+      setNodeId: true
+
+      config: |
+        ui = true
+
+        listener "tcp" {
+          address            = "[::]:8200"
+          cluster_address     = "[::]:8201"
+          tls_cert_file       = "/vault/userconfig/vault-tls/tls.crt"
+          tls_key_file        = "/vault/userconfig/vault-tls/tls.key"
+          tls_client_ca_file  = "/vault/userconfig/vault-tls/ca.crt"
+        }
+
+        storage "raft" {
+          path = "/vault/data"
+        }
+
+        seal "awskms" {
+          region     = "us-east-1"
+          kms_key_id = "arn:aws:kms:us-east-1:264284392625:key/6b6d0360-5acf-4336-8b51-8490e667dd99"
+        }
+
+        service_registration "kubernetes" {}
+
+  # ---------------------------------------------------------------------
+  # TLS - references the Secret created by scripts/generate-vault-tls.ps1.
+  # That Secret is NOT managed by this Helm release / ArgoCD - it must
+  # already exist in the vault namespace before this Application syncs.
+  # ---------------------------------------------------------------------
+  extraVolumes:
+    - type: secret
+      name: vault-tls
+
+  # ---------------------------------------------------------------------
+  # Persistent storage - encrypted, retained on pod/PVC deletion.
+  # ---------------------------------------------------------------------
+  dataStorage:
+    enabled: true
+    size: 10Gi
+    storageClass: gp3-encrypted
+    accessMode: ReadWriteOnce
+
+  auditStorage:
+    enabled: true
+    size: 10Gi
+    storageClass: gp3-encrypted
+    accessMode: ReadWriteOnce
+
+  # ---------------------------------------------------------------------
+  # Scheduling - dedicated, tainted node group from Phase 1. Never shares
+  # nodes with general workloads (ArgoCD, monitoring, etc.).
+  # ---------------------------------------------------------------------
+  nodeSelector:
+    workload: vault
+
+  tolerations:
+    - key: "dedicated"
+      operator: "Equal"
+      value: "vault"
+      effect: "NoSchedule"
+
+  # Chart's default affinity already anti-affines Vault pods off each other
+  # by hostname - with exactly 3 tainted nodes across 3 AZs (Phase 1), this
+  # guarantees one Vault pod per AZ.
+
+  # ---------------------------------------------------------------------
+  # ServiceAccount - name MUST match var.vault_service_account in the infra
+  # repo's Terraform (default "vault"), or the Pod Identity association
+  # from Phase 2 will not bind and Auto-Unseal will fail.
+  # ---------------------------------------------------------------------
+  serviceAccount:
+    create: true
+    name: "vault"
+
+  # ---------------------------------------------------------------------
+  # Hardened pod security - close to "restricted" even though the
+  # namespace ceiling is "baseline" (see kubernetes/vault/namespace.yaml
+  # for why IPC_LOCK/mlock forces baseline at the namespace level).
+  # ---------------------------------------------------------------------
+  securityContext:
+    runAsNonRoot: true
+    runAsUser: 100
+    runAsGroup: 1000
+    fsGroup: 1000
+
+  containerSecurityContext:
+    server:
+      allowPrivilegeEscalation: false
+      readOnlyRootFilesystem: false # Vault writes to /vault/data (PVC) and /tmp at runtime.
+      capabilities:
+        drop: ["ALL"]
+        # The one capability NOT dropped: mlock() needs IPC_LOCK to prevent
+        # Vault's in-memory secrets from ever being swapped to disk. This
+        # is exactly why the namespace enforces "baseline" and not
+        # "restricted" (see kubernetes/vault/namespace.yaml).
+        add: ["IPC_LOCK"]
+
+  resources:
+    requests:
+      cpu: 250m
+      memory: 512Mi
+    limits:
+      cpu: 1000m
+      memory: 1Gi
+
+  service:
+    enabled: true
+    # Deliberately not LoadBalancer/NodePort - same "not publicly exposed"
+    # policy as ArgoCD (Phase 3) and CONTEXT.md section 12.
+
+  # PodDisruptionBudget - prevents routine node maintenance from disrupting
+  # enough Raft members at once to lose quorum (CONTEXT.md section 29).
+  disruptionBudget:
+    enabled: true
+    maxUnavailable: 1
+
+  extraEnvironmentVars:
+    VAULT_CACERT: /vault/userconfig/vault-tls/ca.crt
+
+  # Metrics scraped by Prometheus starting Phase 7 - harmless to enable now.
+  telemetry:
+    metricsEnabled: true
+
+ui:
+  enabled: true
+  serviceType: ClusterIP

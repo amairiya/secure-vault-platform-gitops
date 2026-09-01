@@ -1,0 +1,18 @@
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: gp3-encrypted
+  labels:
+    app.kubernetes.io/part-of: secure-vault-platform
+provisioner: ebs.csi.aws.com
+volumeBindingMode: WaitForFirstConsumer
+reclaimPolicy: Retain # Deleting a Vault pod/PVC must never delete Raft data - CONTEXT.md section 28.
+allowVolumeExpansion: true
+parameters:
+  type: gp3
+  encrypted: "true"
+  # Reuses the eks_secrets KMS key from the infra repo (Phase 1) - see
+  # terraform/eks.tf output eks_secrets_kms_key_arn. Fill in the real ARN
+  # before committing (this value is not secret, just infra metadata, but
+  # it must match the actual deployed key for encryption to succeed).
+  kmsKeyId: "arn:aws:kms:us-east-1:264284392625:key/cf960639-fa99-40f0-8b95-e5793b45f793"

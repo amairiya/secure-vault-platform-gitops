@@ -1,0 +1,47 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: vault
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: secure-vault-platform
+
+  # Multi-source: the namespace + StorageClass come from this repo, the
+  # Vault chart comes from HashiCorp's own Helm repo, and the values file
+  # for that chart is pulled from this repo via the "$values" ref pattern.
+  #
+  # IMPORTANT ORDERING NOTE: the vault-tls Secret referenced by
+  # helm/vault/values-production.yaml (server.extraVolumes) is created
+  # imperatively by scripts/generate-vault-tls.ps1 and is NOT part of this
+  # Application. Run that script BEFORE this Application first syncs, or
+  # Vault pods will crash-loop with a missing volume mount.
+  sources:
+    - repoURL: "https://github.com/amairiya/secure-vault-platform-gitops.git"
+      targetRevision: main
+      path: kubernetes/vault
+
+    - repoURL: "https://github.com/amairiya/secure-vault-platform-gitops.git"
+      targetRevision: main
+      ref: values
+
+    - repoURL: https://helm.releases.hashicorp.com
+      chart: vault
+      targetRevision: "0.34.1"
+      helm:
+        valueFiles:
+          - $values/helm/vault/values-production.yaml
+
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: vault
+
+  syncPolicy:
+    # Deliberately NOT automated. Vault initialization (Phase 4's final
+    # step) is a one-time, human-supervised operation - auto-sync/self-heal
+    # is turned on only after the cluster is initialized, unsealed, and
+    # confirmed healthy (see docs/phase-4-vault.md checklist). Enable
+    # automated: { prune: true, selfHeal: true } once that's done.
+    syncOptions:
+      - CreateNamespace=false
