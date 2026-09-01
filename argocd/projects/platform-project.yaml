@@ -10,11 +10,15 @@ spec:
     unrestricted project (CONTEXT.md: "ArgoCD != Vault Root", least
     privilege applies to the GitOps controller itself).
 
-  # Only this repository may be used as a source. Replace with your real
-  # GitOps repo URL (secure-vault-platform-gitops) once pushed - NOT the
-  # infra/Terraform repo, which ArgoCD never needs access to.
+  # Every repository ArgoCD is allowed to pull from. The gitops repo is the
+  # only Git source; the Vault Application (Phase 4) also pulls the chart
+  # itself from HashiCorp's public Helm repo via a multi-source
+  # Application, so that repo must be explicitly whitelisted too - ArgoCD
+  # blocks any source not listed here, per-Application, regardless of how
+  # many sources that Application declares.
   sourceRepos:
-    - "<GITOPS_REPO_URL>"
+    - "https://github.com/amairiya/secure-vault-platform-gitops.git"
+    - "https://helm.releases.hashicorp.com"
 
   # ArgoCD may only deploy into these namespaces - never kube-system, never
   # cluster-wide without an explicit destination entry.
@@ -39,6 +43,8 @@ spec:
       kind: ClusterRole
     - group: "rbac.authorization.k8s.io"
       kind: ClusterRoleBinding
+    - group: "storage.k8s.io"
+      kind: StorageClass
 
   orphanedResources:
     warn: true
