@@ -4,6 +4,13 @@ metadata:
   name: gp3-encrypted
   labels:
     app.kubernetes.io/part-of: secure-vault-platform
+    # NOTE: currently unused by Vault (Phase 4) due to an AWS account-level
+    # issue where volumes created via the ebs-csi-driver role's dynamic
+    # provisioning never become visible via DescribeVolumes. See
+    # docs/aws-support-ticket-ebs-csi-visibility.md and
+    # kubernetes/vault/static-pvs.yaml for the static-provisioning
+    # workaround in use instead. Kept here for future workloads/once AWS
+    # resolves the underlying issue.
 provisioner: ebs.csi.aws.com
 volumeBindingMode: WaitForFirstConsumer
 reclaimPolicy: Retain # Deleting a Vault pod/PVC must never delete Raft data - CONTEXT.md section 28.

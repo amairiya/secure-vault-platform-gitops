@@ -39,16 +39,7 @@ server:
   # ---------------------------------------------------------------------
   ha:
     enabled: true
-    # TEMPORARY: reduced from 3 to 1 while working around a known EBS CSI
-    # driver race - the driver batches DescribeVolumes calls across all
-    # pending PVCs, and EC2's DescribeVolumes is all-or-nothing per batch:
-    # if even one volume in the batch isn't yet consistent, the WHOLE call
-    # fails, even for volumes that succeeded. With 3 replicas x 2 PVCs each
-    # = 6 concurrent volume creations (StatefulSet uses parallel pod
-    # management, required for Raft peers to join each other), this race
-    # was consistently poisoning every batch. Get vault-0 healthy first,
-    # then scale back to 3 - see docs/phase-4-vault.md troubleshooting.
-    replicas: 1
+    replicas: 3
 
     raft:
       enabled: true
@@ -91,17 +82,20 @@ server:
   dataStorage:
     enabled: true
     size: 10Gi
-    storageClass: gp3-encrypted
+    # Using static provisioning as a workaround - see
+    # docs/aws-support-ticket-ebs-csi-visibility.md. Volumes created via the
+    # ebs-csi-driver role's own dynamic provisioning never become visible
+    # via DescribeVolumes (account-level AWS issue). These volumes are
+    # instead pre-created by Terraform and bound via
+    # kubernetes/vault/static-pvs.yaml. Revert to "gp3-encrypted" once AWS
+    # confirms/fixes the underlying issue.
+    storageClass: vault-static-manual
     accessMode: ReadWriteOnce
 
   auditStorage:
-    # TEMPORARY: disabled alongside the replica reduction above - cuts
-    # concurrent volume creation to just 1 (data-vault-0) while confirming
-    # the CSI race is resolved. Re-enable once vault-0's data PVC binds
-    # successfully.
-    enabled: false
+    enabled: true
     size: 10Gi
-    storageClass: gp3-encrypted
+    storageClass: vault-static-manual
     accessMode: ReadWriteOnce
 
   # ---------------------------------------------------------------------

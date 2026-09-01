@@ -1,0 +1,200 @@
+###############################################################################
+# kubernetes/vault/static-pvs.yaml
+#
+# WORKAROUND for the AWS account-level issue documented in
+# docs/aws-support-ticket-ebs-csi-visibility.md: volumes created via the
+# ebs-csi-driver IAM role (Pod Identity) never become visible via
+# DescribeVolumes, breaking dynamic provisioning. These 6 PersistentVolumes
+# point at volumes created directly by Terraform (terraform/vault-static-
+# volumes.tf) using the operator's own IAM identity instead.
+#
+# Before applying, replace every <VOLUME_ID_*> placeholder with the real
+# volume ID from `terraform output vault_data_volume_ids` /
+# `vault_audit_volume_ids` in the infra repo. These IDs are not secret
+# (just resource identifiers) - safe to commit once filled in.
+#
+# Each PV's nodeAffinity pins it to a specific AZ. Since there is exactly
+# one vault-dedicated node per AZ (Phase 1), this deterministically forces
+# each StatefulSet ordinal's pod onto the same node every time.
+###############################################################################
+
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: vault-static-manual
+  labels:
+    app.kubernetes.io/part-of: secure-vault-platform
+# No provisioner does the actual work here - this StorageClass exists only
+# so PVs and PVCs have a matching name to bind through. Kubernetes' own
+# "no-provisioner" pattern (same as used for local volumes).
+provisioner: kubernetes.io/no-provisioner
+volumeBindingMode: WaitForFirstConsumer
+reclaimPolicy: Retain
+
+---
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: vault-data-0-pv
+  labels:
+    app.kubernetes.io/part-of: secure-vault-platform
+spec:
+  capacity:
+    storage: 10Gi
+  accessModes: ["ReadWriteOnce"]
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: vault-static-manual
+  csi:
+    driver: ebs.csi.aws.com
+    volumeHandle: "<VOLUME_ID_DATA_0>"
+    fsType: ext4
+  claimRef:
+    name: data-vault-0
+    namespace: vault
+  nodeAffinity:
+    required:
+      nodeSelectorTerms:
+        - matchExpressions:
+            - key: topology.kubernetes.io/zone
+              operator: In
+              values: ["<AZ_0>"]
+
+---
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: vault-data-1-pv
+  labels:
+    app.kubernetes.io/part-of: secure-vault-platform
+spec:
+  capacity:
+    storage: 10Gi
+  accessModes: ["ReadWriteOnce"]
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: vault-static-manual
+  csi:
+    driver: ebs.csi.aws.com
+    volumeHandle: "<VOLUME_ID_DATA_1>"
+    fsType: ext4
+  claimRef:
+    name: data-vault-1
+    namespace: vault
+  nodeAffinity:
+    required:
+      nodeSelectorTerms:
+        - matchExpressions:
+            - key: topology.kubernetes.io/zone
+              operator: In
+              values: ["<AZ_1>"]
+
+---
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: vault-data-2-pv
+  labels:
+    app.kubernetes.io/part-of: secure-vault-platform
+spec:
+  capacity:
+    storage: 10Gi
+  accessModes: ["ReadWriteOnce"]
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: vault-static-manual
+  csi:
+    driver: ebs.csi.aws.com
+    volumeHandle: "<VOLUME_ID_DATA_2>"
+    fsType: ext4
+  claimRef:
+    name: data-vault-2
+    namespace: vault
+  nodeAffinity:
+    required:
+      nodeSelectorTerms:
+        - matchExpressions:
+            - key: topology.kubernetes.io/zone
+              operator: In
+              values: ["<AZ_2>"]
+
+---
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: vault-audit-0-pv
+  labels:
+    app.kubernetes.io/part-of: secure-vault-platform
+spec:
+  capacity:
+    storage: 10Gi
+  accessModes: ["ReadWriteOnce"]
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: vault-static-manual
+  csi:
+    driver: ebs.csi.aws.com
+    volumeHandle: "<VOLUME_ID_AUDIT_0>"
+    fsType: ext4
+  claimRef:
+    name: audit-vault-0
+    namespace: vault
+  nodeAffinity:
+    required:
+      nodeSelectorTerms:
+        - matchExpressions:
+            - key: topology.kubernetes.io/zone
+              operator: In
+              values: ["<AZ_0>"]
+
+---
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: vault-audit-1-pv
+  labels:
+    app.kubernetes.io/part-of: secure-vault-platform
+spec:
+  capacity:
+    storage: 10Gi
+  accessModes: ["ReadWriteOnce"]
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: vault-static-manual
+  csi:
+    driver: ebs.csi.aws.com
+    volumeHandle: "<VOLUME_ID_AUDIT_1>"
+    fsType: ext4
+  claimRef:
+    name: audit-vault-1
+    namespace: vault
+  nodeAffinity:
+    required:
+      nodeSelectorTerms:
+        - matchExpressions:
+            - key: topology.kubernetes.io/zone
+              operator: In
+              values: ["<AZ_1>"]
+
+---
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: vault-audit-2-pv
+  labels:
+    app.kubernetes.io/part-of: secure-vault-platform
+spec:
+  capacity:
+    storage: 10Gi
+  accessModes: ["ReadWriteOnce"]
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: vault-static-manual
+  csi:
+    driver: ebs.csi.aws.com
+    volumeHandle: "<VOLUME_ID_AUDIT_2>"
+    fsType: ext4
+  claimRef:
+    name: audit-vault-2
+    namespace: vault
+  nodeAffinity:
+    required:
+      nodeSelectorTerms:
+        - matchExpressions:
+            - key: topology.kubernetes.io/zone
+              operator: In
+              values: ["<AZ_2>"]
