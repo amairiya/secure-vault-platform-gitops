@@ -38,7 +38,16 @@ server:
   # ---------------------------------------------------------------------
   ha:
     enabled: true
-    replicas: 3
+    # TEMPORARY: reduced from 3 to 1 while working around a known EBS CSI
+    # driver race - the driver batches DescribeVolumes calls across all
+    # pending PVCs, and EC2's DescribeVolumes is all-or-nothing per batch:
+    # if even one volume in the batch isn't yet consistent, the WHOLE call
+    # fails, even for volumes that succeeded. With 3 replicas x 2 PVCs each
+    # = 6 concurrent volume creations (StatefulSet uses parallel pod
+    # management, required for Raft peers to join each other), this race
+    # was consistently poisoning every batch. Get vault-0 healthy first,
+    # then scale back to 3 - see docs/phase-4-vault.md troubleshooting.
+    replicas: 1
 
     raft:
       enabled: true
@@ -85,7 +94,11 @@ server:
     accessMode: ReadWriteOnce
 
   auditStorage:
-    enabled: true
+    # TEMPORARY: disabled alongside the replica reduction above - cuts
+    # concurrent volume creation to just 1 (data-vault-0) while confirming
+    # the CSI race is resolved. Re-enable once vault-0's data PVC binds
+    # successfully.
+    enabled: false
     size: 10Gi
     storageClass: gp3-encrypted
     accessMode: ReadWriteOnce
