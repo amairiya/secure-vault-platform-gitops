@@ -4,24 +4,12 @@ metadata:
   name: secure-vault-platform
   namespace: argocd
 spec:
-  description: >-
-    Secure Vault Production Platform - the only project used by this
-    cluster's ArgoCD instance. Deliberately scoped, not the "default"
-    unrestricted project (CONTEXT.md: "ArgoCD != Vault Root", least
-    privilege applies to the GitOps controller itself).
+  description: Secure Vault Production Platform
 
-  # Every repository ArgoCD is allowed to pull from. The gitops repo is the
-  # only Git source; the Vault Application (Phase 4) also pulls the chart
-  # itself from HashiCorp's public Helm repo via a multi-source
-  # Application, so that repo must be explicitly whitelisted too - ArgoCD
-  # blocks any source not listed here, per-Application, regardless of how
-  # many sources that Application declares.
   sourceRepos:
     - "https://github.com/amairiya/secure-vault-platform-gitops.git"
     - "https://helm.releases.hashicorp.com"
 
-  # ArgoCD may only deploy into these namespaces - never kube-system, never
-  # cluster-wide without an explicit destination entry.
   destinations:
     - namespace: argocd
       server: https://kubernetes.default.svc
@@ -30,23 +18,22 @@ spec:
     - namespace: monitoring
       server: https://kubernetes.default.svc
 
-  # Cluster-scoped resources ArgoCD is allowed to manage. Deliberately NOT
-  # a wildcard - see CONTEXT.md section 15: "Every Kubernetes permission
-  # must have a reason." NetworkPolicy/PodDisruptionBudget/etc. are
-  # namespaced resources, not cluster-scoped - they don't belong here; they
-  # deploy automatically within the whitelisted destination namespaces
-  # above.
   clusterResourceWhitelist:
     - group: ""
       kind: Namespace
+
     - group: ""
       kind: PersistentVolume
-    - group: "rbac.authorization.k8s.io"
+
+    - group: rbac.authorization.k8s.io
       kind: ClusterRole
-    - group: "rbac.authorization.k8s.io"
+
+    - group: rbac.authorization.k8s.io
       kind: ClusterRoleBinding
-    - group: "storage.k8s.io"
+
+    - group: storage.k8s.io
       kind: StorageClass
 
   orphanedResources:
     warn: true
+    
