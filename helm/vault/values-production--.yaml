@@ -19,6 +19,7 @@
 global:
   tlsDisable: false # Never true in production - CONTEXT.md section 11.
 
+
 injector:
   # Vault Agent Injector is Phase 5 work (Kubernetes Auth / secret
   # injection). Installing it now with nothing configured to use it yet is
@@ -57,30 +58,6 @@ server:
 
         storage "raft" {
           path = "/vault/data"
-
-          # THIS WAS MISSING - without retry_join, a node has no way to
-          # discover and join an already-initialized Raft cluster. Every
-          # replica lists every peer (including itself, which Vault
-          # skips harmlessly) so any node can independently find and
-          # join the leader once it has an initialized security barrier.
-          retry_join {
-            leader_api_addr         = "https://vault-0.vault-internal:8200"
-            leader_ca_cert_file     = "/vault/userconfig/vault-tls/ca.crt"
-            leader_client_cert_file = "/vault/userconfig/vault-tls/tls.crt"
-            leader_client_key_file  = "/vault/userconfig/vault-tls/tls.key"
-          }
-          retry_join {
-            leader_api_addr         = "https://vault-1.vault-internal:8200"
-            leader_ca_cert_file     = "/vault/userconfig/vault-tls/ca.crt"
-            leader_client_cert_file = "/vault/userconfig/vault-tls/tls.crt"
-            leader_client_key_file  = "/vault/userconfig/vault-tls/tls.key"
-          }
-          retry_join {
-            leader_api_addr         = "https://vault-2.vault-internal:8200"
-            leader_ca_cert_file     = "/vault/userconfig/vault-tls/ca.crt"
-            leader_client_cert_file = "/vault/userconfig/vault-tls/tls.crt"
-            leader_client_key_file  = "/vault/userconfig/vault-tls/tls.key"
-          }
         }
 
         seal "awskms" {

@@ -29,32 +29,12 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
-
-# vault status intentionally returns exit code 1 (error) or 2 (sealed) - it
-# is NOT success-only. A non-zero exit here is expected, routine output,
-# not a failure. This helper temporarily relaxes $ErrorActionPreference
-# just around the call so PowerShell does not turn that exit code into a
-# terminating exception - this approach works identically on Windows
-# PowerShell 5.1 and PowerShell 7+, unlike relying on
-# $PSNativeCommandUseErrorActionPreference (7.3+ only, silently ignored on
-# 5.1).
-function Get-VaultStatus {
-    param([Parameter(Mandatory = $true)][string]$PodName)
-
-    $previousPref = $ErrorActionPreference
-    $ErrorActionPreference = "Continue"
-    try {
-        $json = kubectl -n $Namespace exec $PodName -- vault status -format=json 2>$null
-        if ($json) {
-            return ($json | ConvertFrom-Json)
-        }
-        return $null
-    } catch {
-        return $null
-    } finally {
-        $ErrorActionPreference = $previousPref
-    }
-}
+# vault status intentionally returns exit code 2 when sealed and 1 on error
+# (not 0=success only) - this is documented Vault CLI behavior, not a
+# failure. Disable PowerShell 7+'s automatic conversion of non-zero native
+# command exit codes into terminating errors, so we can inspect
+# $LASTEXITCODE / the JSON output ourselves instead of crashing here.
+$PSNativeCommandUseErrorActionPreference = $false
 
 Write-Host "== Vault initialization ==" -ForegroundColor Cyan
 
@@ -90,7 +70,7 @@ Write-Host "vault-0 is Running." -ForegroundColor Green
 Write-Host ""
 Write-Host "-- Checking initialization status" -ForegroundColor Cyan
 
-$statusJson = Get-VaultStatus -PodName vault-0
+$statusJson = kubectl -n $Namespace exec vault-0 -- vault status -format=json 2>$null | ConvertFrom-Json
 
 if ($statusJson.initialized -eq $true) {
     Write-Host "Vault is already initialized. Skipping init - this script never re-initializes an existing cluster." -ForegroundColor Yellow
@@ -105,24 +85,9 @@ if ($statusJson.initialized -eq $true) {
     Write-Host "-- Initializing Vault (recovery-shares=$RecoveryShares, recovery-threshold=$RecoveryThreshold)" -ForegroundColor Cyan
 
     $initJson = kubectl -n $Namespace exec vault-0 -- vault operator init `
-        "-recovery-shares=$RecoveryShares" `
-        "-recovery-threshold=$RecoveryThreshold" `
-        "-format=json" 2>&1
-
-    # vault operator init failing (bad flags, already initialized race,
-    # connectivity) must NOT be reported as success. Verify the output is
-    # actually parseable JSON containing a root_token before proceeding.
-    $initParsed = $null
-    try { $initParsed = $initJson | ConvertFrom-Json -ErrorAction Stop } catch {}
-
-    if (-not $initParsed -or -not $initParsed.root_token) {
-        Write-Host ""
-        Write-Host "ERREUR: 'vault operator init' a echoue - AUCUNE cle n'a ete generee." -ForegroundColor Red
-        Write-Host "Sortie brute:" -ForegroundColor Red
-        Write-Host $initJson -ForegroundColor Red
-        Write-Host "Le script s'arrete ici - ne pas continuer tant que l'init n'a pas reussi." -ForegroundColor Red
-        exit 1
-    }
+        -recovery-shares=$RecoveryShares `
+        -recovery-threshold=$RecoveryThreshold `
+        -format=json
 
     $initFile = "$OutDir/vault-init.json"
     $initJson | Out-File -FilePath $initFile -Encoding utf8
@@ -162,7 +127,7 @@ Write-Host ""
 Write-Host "-- Verifying AWS KMS Auto-Unseal on vault-0" -ForegroundColor Cyan
 
 Start-Sleep -Seconds 5
-$status0 = Get-VaultStatus -PodName vault-0
+$status0 = kubectl -n $Namespace exec vault-0 -- vault status -format=json 2>$null | ConvertFrom-Json
 
 if ($status0.sealed -eq $false) {
     Write-Host "vault-0: unsealed automatically via AWS KMS. Auto-Unseal confirmed working." -ForegroundColor Green
@@ -180,8 +145,10 @@ Write-Host "-- Waiting for vault-1 and vault-2 to join and auto-unseal" -Foregro
 foreach ($pod in @("vault-1", "vault-2")) {
     $joined = $false
     for ($i = 0; $i -lt 18; $i++) {
-        $s = Get-VaultStatus -PodName $pod
-        if ($s -and $s.sealed -eq $false) { $joined = $true; break }
+        try {
+            $s = kubectl -n $Namespace exec $pod -- vault status -format=json 2>$null | ConvertFrom-Json
+            if ($s.sealed -eq $false) { $joined = $true; break }
+        } catch {}
         Start-Sleep -Seconds 10
     }
     if ($joined) {

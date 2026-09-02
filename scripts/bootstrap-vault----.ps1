@@ -105,24 +105,9 @@ if ($statusJson.initialized -eq $true) {
     Write-Host "-- Initializing Vault (recovery-shares=$RecoveryShares, recovery-threshold=$RecoveryThreshold)" -ForegroundColor Cyan
 
     $initJson = kubectl -n $Namespace exec vault-0 -- vault operator init `
-        "-recovery-shares=$RecoveryShares" `
-        "-recovery-threshold=$RecoveryThreshold" `
-        "-format=json" 2>&1
-
-    # vault operator init failing (bad flags, already initialized race,
-    # connectivity) must NOT be reported as success. Verify the output is
-    # actually parseable JSON containing a root_token before proceeding.
-    $initParsed = $null
-    try { $initParsed = $initJson | ConvertFrom-Json -ErrorAction Stop } catch {}
-
-    if (-not $initParsed -or -not $initParsed.root_token) {
-        Write-Host ""
-        Write-Host "ERREUR: 'vault operator init' a echoue - AUCUNE cle n'a ete generee." -ForegroundColor Red
-        Write-Host "Sortie brute:" -ForegroundColor Red
-        Write-Host $initJson -ForegroundColor Red
-        Write-Host "Le script s'arrete ici - ne pas continuer tant que l'init n'a pas reussi." -ForegroundColor Red
-        exit 1
-    }
+        -recovery-shares=$RecoveryShares `
+        -recovery-threshold=$RecoveryThreshold `
+        -format=json
 
     $initFile = "$OutDir/vault-init.json"
     $initJson | Out-File -FilePath $initFile -Encoding utf8
